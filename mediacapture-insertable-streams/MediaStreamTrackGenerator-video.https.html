@@ -4,6 +4,7 @@
 <title>MediaStream Insertable Streams - Video</title>
 <script src="/resources/testharness.js"></script>
 <script src="/resources/testharnessreport.js"></script>
+<script src="/webrtc/RTCPeerConnection-helper.js"></script>
 </head>
 <body>
   <p class="instructions">When prompted, use the accept button to give permission to use your audio and video devices.</p>
@@ -21,7 +22,7 @@
       ctx.fillStyle = `rgba(${pixelColour[0]}, ${pixelColour[1]}, ${pixelColour[2]}, ${pixelColour[3]})`;
       ctx.fillRect(0, 0, width, height);
 
-      return new VideoFrame(canvas.transferToImageBitmap(), { timestamp });
+      return new VideoFrame(canvas.transferToImageBitmap(), { timestamp, alpha: 'discard' });
     }
 
     async function getVideoFrame() {
@@ -41,6 +42,33 @@
           assert_greater_than(bytes[i], expected[i] - 2, "Mismatched pixel");
         });
       }
+    }
+
+    async function initiateSingleTrackCall(t, track, output) {
+      const caller = new RTCPeerConnection();
+      t.add_cleanup(() => caller.close());
+      const callee = new RTCPeerConnection();
+      t.add_cleanup(() => callee.close());
+
+      caller.addTrack(track);
+      t.add_cleanup(() => track.stop());
+
+      callee.ontrack = track => output.srcObject = track.streams[0];
+      let ontrack_promise = addEventListenerPromise(t, callee, 'track');;
+
+      exchangeIceCandidates(caller, callee);
+
+      await exchangeOffer(caller, callee);
+
+      // Exchange answer.
+      let answer = await callee.createAnswer();
+      await callee.setLocalDescription(answer);
+      await caller.setRemoteDescription(answer);
+
+      // Wait for the first track.
+      await ontrack_promise;
+
+      return [caller, callee];
     }
 
     promise_test(async t => {
@@ -74,7 +102,7 @@
       const originalWidth = videoFrame.displayWidth;
       const originalHeight = videoFrame.displayHeight;
       const originalTimestamp = videoFrame.timestamp;
-      const generator = new MediaStreamTrackGenerator({kind: 'video'});
+      const generator = new MediaStreamTrackGenerator({ kind: 'video' });
       t.add_cleanup(() => generator.stop());
 
       const video = document.createElement("video");
@@ -98,9 +126,40 @@
       const context = canvas.getContext('2d');
       context.drawImage(video, 0, 0);
       // Pick a pixel in the centre of the video and check that it has the colour of the frame provided.
-      const pixel = context.getImageData(videoFrame.displayWidth/2, videoFrame.displayHeight/2, 1, 1);
+      const pixel = context.getImageData(videoFrame.displayWidth / 2, videoFrame.displayHeight / 2, 1, 1);
       assertPixel(t, pixel.data, pixelColour);
     }, 'Tests that frames are actually rendered correctly in a stream used for a video element.');
+
+    promise_test(async t => {
+      const videoFrame = makeVideoFrame(1);
+      const originalWidth = videoFrame.displayWidth;
+      const originalHeight = videoFrame.displayHeight;
+      const originalTimestamp = videoFrame.timestamp;
+      const generator = new MediaStreamTrackGenerator({ kind: 'video' });
+      t.add_cleanup(() => generator.stop());
+
+      const video = document.createElement("video");
+      video.autoplay = true;
+      video.width = 320;
+      video.height = 240;
+      video.play();
+
+      const [caller, callee] = await initiateSingleTrackCall(t, generator, video);
+
+      await generator.writable.getWriter().write(videoFrame);
+
+      await t.step_wait(() => video.currentTime > 0, "video has played");
+
+
+      const canvas = document.createElement("canvas");
+      canvas.width = originalWidth;
+      canvas.height = originalHeight;
+      const context = canvas.getContext('2d');
+      context.drawImage(video, 0, 0);
+      // Pick a pixel in the centre of the video and check that it has the colour of the frame provided.
+      const pixel = context.getImageData(videoFrame.displayWidth / 2, videoFrame.displayHeight / 2, 1, 1);
+      assertPixel(t, pixel.data, pixelColour);
+    }, 'Tests that frames are actually rendered correctly in a stream sent over a peer connection.');
 
 
     promise_test(async t => {
