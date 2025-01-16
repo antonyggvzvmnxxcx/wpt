@@ -1,11 +1,11 @@
-window.createRecordingCloseWatcher = (t, events, name, type, parent) => {
+window.createRecordingCloseWatcher = (t, events, name, type, parentWatcher) => {
   let watcher = null;
   if (type === 'dialog') {
     watcher = document.createElement('dialog');
     watcher.textContent = 'hello world';
     t.add_cleanup(() => watcher.remove());
-    if (parent) {
-      parent.appendChild(watcher);
+    if (parentWatcher?.appendChild) {
+      parentWatcher.appendChild(watcher);
     } else {
       document.body.appendChild(watcher);
     }
@@ -15,8 +15,8 @@ window.createRecordingCloseWatcher = (t, events, name, type, parent) => {
     watcher.setAttribute('popover', 'auto');
     watcher.textContent = 'hello world';
     t.add_cleanup(() => watcher.remove());
-    if (parent) {
-      parent.appendChild(watcher);
+    if (parentWatcher?.appendChild) {
+      parentWatcher.appendChild(watcher);
     } else {
       document.body.appendChild(watcher);
     }
@@ -26,15 +26,29 @@ window.createRecordingCloseWatcher = (t, events, name, type, parent) => {
     t.add_cleanup(() => watcher.destroy());
   }
 
-  const prefix = name === undefined ? "" : name + " ";
-  watcher.addEventListener('cancel', () => events.push(prefix + "cancel"));
-  watcher.addEventListener('close', () => events.push(prefix + "close"));
+  const prefix = name === undefined ? '' : name + ' ';
+  watcher.addEventListener('cancel', e => {
+    const cancelable = e.cancelable ? '[cancelable=true]' : '[cancelable=false]';
+    events.push(prefix + 'cancel' + cancelable);
+  });
+  watcher.addEventListener('close', () => {
+    events.push(prefix + 'close');
+  });
 
   return watcher;
 };
 
-window.createBlessedRecordingCloseWatcher = async (t, events, name, type, dialog) => {
-  return dialogResilientBless(dialog, () => createRecordingCloseWatcher(t, events, name, type, dialog));
+window.createBlessedRecordingCloseWatcher = async (t, events, name, type, parentWatcher) => {
+  await maybeTopLayerBless(parentWatcher);
+  return createRecordingCloseWatcher(t, events, name, type, parentWatcher);
+};
+
+window.destroyCloseWatcher = (watcher) => {
+  if (watcher instanceof HTMLElement) {
+    watcher.remove();
+  } else {
+    watcher.destroy();
+  }
 };
 
 window.sendEscKey = () => {
@@ -52,20 +66,15 @@ window.sendEscKey = () => {
 // function, but not update the sendEscKey function above.
 window.sendCloseRequest = window.sendEscKey;
 
-// This function is a version of test_driver.bless which works on dialog elements:
-// https://github.com/web-platform-tests/wpt/issues/41218
-window.dialogResilientBless = async (watcher, fn) => {
+window.maybeTopLayerBless = (watcher) => {
   if (watcher instanceof HTMLElement) {
-    const button = document.createElement('button');
-    watcher.appendChild(button);
-    await test_driver.click(button);
-    button.remove();
-    if (typeof fn === 'function') {
-      return fn();
-    } else {
-      return null;
-    }
-  } else {
-    return await test_driver.bless('dialogResilientBless', fn);
+    return blessTopLayer(watcher);
   }
+  return test_driver.bless();
+};
+
+window.waitForPotentialCloseEvent = () => {
+  // CloseWatchers fire close events synchronously, but dialog elements wait
+  // for a rAF before firing them.
+  return new Promise(requestAnimationFrame);
 };

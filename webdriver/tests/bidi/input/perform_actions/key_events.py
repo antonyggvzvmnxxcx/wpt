@@ -23,7 +23,7 @@ pytestmark = pytest.mark.asyncio
 
 )
 async def test_non_printable_key_sends_events(
-    bidi_session, top_context, key, event
+    bidi_session, top_context, setup_key_test, key, event
 ):
     code = ALL_EVENTS[event]["code"]
     value = ALL_EVENTS[event]["key"]
@@ -76,9 +76,7 @@ async def test_non_printable_key_sends_events(
         (Keys.R_SHIFT, "R_SHIFT"),
     ],
 )
-async def test_key_modifier_key(
-    bidi_session, top_context, setup_key_test, key, event
-):
+async def test_key_modifier_key(bidi_session, top_context, setup_key_test, key, event):
     code = ALL_EVENTS[event]["code"]
     value = ALL_EVENTS[event]["key"]
 
@@ -144,7 +142,7 @@ async def test_key_printable_key(
 
 
 @pytest.mark.parametrize("use_keyup", [True, False])
-async def test_key_printable_sequence(bidi_session, top_context, use_keyup):
+async def test_key_printable_sequence(bidi_session, top_context, setup_key_test, use_keyup):
     actions = Actions()
     actions.add_key()
     if use_keyup:
@@ -231,7 +229,7 @@ async def test_key_special_key_sends_keydown(
         assert len(keys_value) == 0
 
 
-async def test_key_space(bidi_session, top_context):
+async def test_key_space(bidi_session, top_context, setup_key_test):
     actions = Actions()
     (
         actions.add_key()
@@ -256,7 +254,7 @@ async def test_key_space(bidi_session, top_context):
         assert events[0] == events[1]
 
 
-async def test_keyup_only_sends_no_events(bidi_session, top_context):
+async def test_keyup_only_sends_no_events(bidi_session, top_context, setup_key_test):
     actions = Actions()
     actions.add_key().key_up("a")
     await bidi_session.input.perform_actions(
